@@ -1,0 +1,1077 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Flappy Bird - Aero Edition</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: radial-gradient(circle at 50% 20%, #1e2638, #090c13);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        #game-wrapper {
+            position: relative;
+            width: 100%;
+            max-width: 420px;
+            height: 100%;
+            max-height: 750px;
+            border-radius: 20px;
+            padding: 8px;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0.1) 40%, rgba(255, 255, 255, 0.25) 100%);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6),
+                        inset 0 1px 1px rgba(255, 255, 255, 0.8),
+                        inset 0 -1px 2px rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated;
+        }
+
+        /* Aero 玻璃按鈕與 UI 元件 */
+        .aero-btn-group {
+            position: absolute;
+            bottom: 22px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 8px;
+            z-index: 20;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 5px;
+            border-radius: 30px;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.8);
+        }
+
+        .aero-btn {
+            border: none;
+            outline: none;
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 700;
+            border-radius: 20px;
+            cursor: pointer;
+            color: #1a334d;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.85) 0%, rgba(220, 235, 252, 0.6) 50%, rgba(185, 215, 248, 0.75) 100%);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15), inset 0 1px 0 #ffffff;
+            transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+            text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+        }
+
+        .aero-btn:hover {
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(235, 245, 255, 0.85) 50%, rgba(200, 228, 255, 0.9) 100%);
+            box-shadow: 0 3px 10px rgba(0, 140, 255, 0.35), inset 0 1px 0 #ffffff;
+            transform: translateY(-1px);
+        }
+
+        .aero-btn.active {
+            color: #ffffff;
+            background: linear-gradient(180deg, #3aa8f7 0%, #177bd8 50%, #0d5ea8 100%);
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(13, 94, 168, 0.45);
+            text-shadow: 0 -1px 1px rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        /* 頂部裝飾光斑 */
+        .glass-glare {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 38%;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 100%);
+            pointer-events: none;
+            border-radius: 14px 14px 0 0;
+            z-index: 15;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-wrapper">
+        <div id="game-container">
+            <div class="glass-glare"></div>
+            <canvas id="gameCanvas" width="360" height="640"></canvas>
+            
+            <!-- Aero 難度切換欄 -->
+            <div id="difficulty-panel" class="aero-btn-group">
+                <button class="aero-btn" data-diff="easy">簡單</button>
+                <button class="aero-btn active" data-diff="normal">普通</button>
+                <button class="aero-btn" data-diff="hard">困難</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    /* ==========================================================================
+       1. Web Audio API 音效模組
+       ========================================================================== */
+    class SoundController {
+        constructor() {
+            this.ctx = null;
+        }
+
+        init() {
+            if (!this.ctx) {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                if (AudioCtx) this.ctx = new AudioCtx();
+            }
+            if (this.ctx && this.ctx.state === 'suspended') {
+                this.ctx.resume();
+            }
+        }
+
+        playFlap() {
+            if (!this.ctx) return;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            const now = this.ctx.currentTime;
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(380, now);
+            osc.frequency.exponentialRampToValueAtTime(760, now + 0.09);
+            gain.gain.setValueAtTime(0.24, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.09);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.09);
+        }
+
+        playScore() {
+            if (!this.ctx) return;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            const now = this.ctx.currentTime;
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(620, now);
+            osc.frequency.setValueAtTime(940, now + 0.08);
+            gain.gain.setValueAtTime(0.3, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.32);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.32);
+        }
+
+        playHit() {
+            if (!this.ctx) return;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            const now = this.ctx.currentTime;
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(220, now);
+            osc.frequency.exponentialRampToValueAtTime(45, now + 0.14);
+            gain.gain.setValueAtTime(0.35, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.14);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.14);
+        }
+
+        playDie() {
+            if (!this.ctx) return;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            const now = this.ctx.currentTime;
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(320, now);
+            osc.frequency.exponentialRampToValueAtTime(80, now + 0.3);
+            gain.gain.setValueAtTime(0.28, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.3);
+        }
+    }
+
+    const sound = new SoundController();
+
+    /* ==========================================================================
+       2. 難度配置常數
+       ========================================================================== */
+    const DIFFICULTIES = {
+        easy: {
+            name: '簡單',
+            pipeGap: 148,
+            pipeSpeed: 1.85,
+            spawnInterval: 115,
+            jumpForce: -6.4,
+            gravity: 0.32
+        },
+        normal: {
+            name: '普通',
+            pipeGap: 122,
+            pipeSpeed: 2.3,
+            spawnInterval: 100,
+            jumpForce: -6.8,
+            gravity: 0.37
+        },
+        hard: {
+            name: '困難',
+            pipeGap: 104,
+            pipeSpeed: 2.9,
+            spawnInterval: 88,
+            jumpForce: -7.2,
+            gravity: 0.42
+        }
+    };
+
+    let currentDifficultyKey = 'normal';
+
+    /* ==========================================================================
+       3. 核心狀態與世界環境
+       ========================================================================== */
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const WIDTH = 360;
+    const HEIGHT = 640;
+    const GROUND_Y = 530;
+
+    const STATE = {
+        GET_READY: 0,
+        PLAYING: 1,
+        GAME_OVER: 2
+    };
+
+    let currentState = STATE.GET_READY;
+    let score = 0;
+    let frames = 0;
+    let flashOpacity = 0;
+    let timeOfDay = 0.15; // 0.0 ~ 1.0 (0=正午, 0.25=黃昏, 0.5=深夜, 0.75=黎明)
+
+    // 最高分依難度分開存取
+    function getBestScore(diff) {
+        return parseInt(localStorage.getItem(`flappy_best_${diff}`) || '0', 10);
+    }
+    function setBestScore(diff, val) {
+        localStorage.setItem(`flappy_best_${diff}`, val.toString());
+    }
+
+    // 繁星點點
+    const stars = Array.from({ length: 32 }, () => ({
+        x: Math.random() * WIDTH,
+        y: Math.random() * (GROUND_Y - 140),
+        size: Math.random() * 1.6 + 0.8,
+        twinkle: Math.random() * Math.PI * 2
+    }));
+
+    // 雲朵
+    const clouds = [
+        { x: 30, y: 70, scale: 1.0, speed: 0.35 },
+        { x: 210, y: 115, scale: 0.72, speed: 0.22 },
+        { x: 330, y: 55, scale: 0.88, speed: 0.3 }
+    ];
+
+    let groundOffset = 0;
+
+    /* ==========================================================================
+       4. 小鳥主角物件
+       ========================================================================== */
+    const bird = {
+        x: 82,
+        y: 250,
+        radius: 13,
+        velocity: 0,
+        rotation: 0,
+        wingPhase: 0,
+
+        reset() {
+            this.x = 82;
+            this.y = 250;
+            this.velocity = 0;
+            this.rotation = 0;
+            this.wingPhase = 0;
+        },
+
+        flap() {
+            const cfg = DIFFICULTIES[currentDifficultyKey];
+            this.velocity = cfg.jumpForce;
+            this.wingPhase = 0;
+            sound.playFlap();
+        },
+
+        update() {
+            const cfg = DIFFICULTIES[currentDifficultyKey];
+            if (currentState === STATE.GET_READY) {
+                this.y = 250 + Math.sin(frames * 0.08) * 7;
+                this.rotation = 0;
+                this.wingPhase += 0.2;
+            } else if (currentState === STATE.PLAYING || currentState === STATE.GAME_OVER) {
+                this.velocity += cfg.gravity;
+                this.y += this.velocity;
+
+                if (this.velocity < 0) {
+                    this.rotation = Math.max(-0.45, -0.45 * (Math.abs(this.velocity) / 6.5));
+                    this.wingPhase += 0.32;
+                } else {
+                    this.rotation = Math.min(Math.PI / 2, this.rotation + 0.065);
+                    if (this.rotation > 0.45) this.wingPhase = 0;
+                }
+
+                if (this.y + this.radius >= GROUND_Y) {
+                    this.y = GROUND_Y - this.radius;
+                    if (currentState === STATE.PLAYING) {
+                        triggerGameOver();
+                    }
+                }
+
+                if (this.y - this.radius <= 0) {
+                    this.y = this.radius;
+                    this.velocity = 0;
+                }
+            }
+        },
+
+        draw() {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(this.rotation);
+
+            // 陰影 (Aero 精緻微陰影)
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
+            ctx.shadowBlur = 6;
+            ctx.shadowOffsetY = 3;
+
+            // 主體圓形身軀
+            const bodyGrad = ctx.createRadialGradient(-2, -3, 3, 0, 0, 16);
+            bodyGrad.addColorStop(0, '#ffe853');
+            bodyGrad.addColorStop(0.7, '#f4b81f');
+            bodyGrad.addColorStop(1, '#d88b0d');
+
+            ctx.fillStyle = bodyGrad;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 17, 13, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.shadowColor = 'transparent';
+            ctx.lineWidth = 1.8;
+            ctx.strokeStyle = '#432616';
+            ctx.stroke();
+
+            // 肚子亮粉白絨毛
+            ctx.fillStyle = '#fff6b8';
+            ctx.beginPath();
+            ctx.ellipse(-3, 4, 10, 6, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 大眼睛 (立體水潤 Aero 風)
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(8, -5, 6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.lineWidth = 1.6;
+            ctx.strokeStyle = '#432616';
+            ctx.stroke();
+
+            // 黑色瞳孔 + 雙重反光
+            ctx.fillStyle = '#111111';
+            ctx.beginPath();
+            ctx.arc(10, -5, 2.7, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(9.2, -6.2, 1.2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(11.2, -4.2, 0.6, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 鳥嘴
+            const beakGrad = ctx.createLinearGradient(11, -1, 23, 6);
+            beakGrad.addColorStop(0, '#ff7043');
+            beakGrad.addColorStop(1, '#d83b01');
+            ctx.fillStyle = beakGrad;
+            ctx.beginPath();
+            ctx.moveTo(11, -2);
+            ctx.lineTo(23, 2);
+            ctx.lineTo(11, 6);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = '#432616';
+            ctx.lineWidth = 1.4;
+            ctx.stroke();
+
+            // 翅膀拍動
+            const flapOffset = Math.sin(this.wingPhase) * 6;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.beginPath();
+            ctx.ellipse(-6, flapOffset, 8, 5, -0.2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#432616';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+            ctx.restore();
+        }
+    };
+
+    /* ==========================================================================
+       5. 水管障礙物
+       ========================================================================== */
+    const pipes = {
+        items: [],
+        width: 56,
+
+        reset() {
+            this.items = [];
+        },
+
+        update() {
+            if (currentState !== STATE.PLAYING) return;
+            const cfg = DIFFICULTIES[currentDifficultyKey];
+
+            if (frames % cfg.spawnInterval === 0) {
+                const minH = 50;
+                const maxH = GROUND_Y - cfg.pipeGap - minH;
+                const topH = Math.floor(Math.random() * (maxH - minH + 1)) + minH;
+
+                this.items.push({
+                    x: WIDTH,
+                    top: topH,
+                    gap: cfg.pipeGap,
+                    passed: false
+                });
+            }
+
+            for (let i = this.items.length - 1; i >= 0; i--) {
+                const p = this.items[i];
+                p.x -= cfg.pipeSpeed;
+
+                // 碰撞檢測
+                const birdLeft = bird.x - bird.radius + 3;
+                const birdRight = bird.x + bird.radius - 3;
+                const birdTop = bird.y - bird.radius + 3;
+                const birdBottom = bird.y + bird.radius - 3;
+
+                const pipeLeft = p.x;
+                const pipeRight = p.x + this.width;
+                const topPipeBottom = p.top;
+                const bottomPipeTop = p.top + p.gap;
+
+                if (birdRight > pipeLeft && birdLeft < pipeRight) {
+                    if (birdTop < topPipeBottom || birdBottom > bottomPipeTop) {
+                        triggerGameOver();
+                    }
+                }
+
+                // 得分
+                if (!p.passed && p.x + this.width < bird.x) {
+                    p.passed = true;
+                    score++;
+                    sound.playScore();
+                }
+
+                if (p.x + this.width < -12) {
+                    this.items.splice(i, 1);
+                }
+            }
+        },
+
+        draw() {
+            for (let i = 0; i < this.items.length; i++) {
+                const p = this.items[i];
+                this.drawPipe(p.x, 0, this.width, p.top, true);
+                this.drawPipe(p.x, p.top + p.gap, this.width, GROUND_Y - (p.top + p.gap), false);
+            }
+        },
+
+        drawPipe(x, y, w, h, isTop) {
+            ctx.save();
+
+            // 夜間色溫微調
+            const isNight = timeOfDay > 0.4 && timeOfDay < 0.85;
+
+            // 水管管身立體漸層
+            const pipeGrad = ctx.createLinearGradient(x, 0, x + w, 0);
+            if (isNight) {
+                pipeGrad.addColorStop(0, '#2e6b27');
+                pipeGrad.addColorStop(0.25, '#48983d');
+                pipeGrad.addColorStop(0.5, '#68b55d');
+                pipeGrad.addColorStop(0.8, '#326f2a');
+                pipeGrad.addColorStop(1, '#1b3f17');
+            } else {
+                pipeGrad.addColorStop(0, '#4ea723');
+                pipeGrad.addColorStop(0.2, '#72cc33');
+                pipeGrad.addColorStop(0.5, '#99e746');
+                pipeGrad.addColorStop(0.8, '#4ea723');
+                pipeGrad.addColorStop(1, '#286214');
+            }
+
+            ctx.fillStyle = pipeGrad;
+            ctx.fillRect(x, y, w, h);
+
+            ctx.strokeStyle = '#1b3f17';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, w, h);
+
+            // 管口突出法蘭 (Pipe Cap)
+            const capH = 24;
+            const capOver = 4;
+            const capY = isTop ? y + h - capH : y;
+            const capW = w + capOver * 2;
+
+            const capGrad = ctx.createLinearGradient(x - capOver, 0, x - capOver + capW, 0);
+            if (isNight) {
+                capGrad.addColorStop(0, '#38782f');
+                capGrad.addColorStop(0.25, '#56aa4a');
+                capGrad.addColorStop(0.5, '#78c66c');
+                capGrad.addColorStop(0.8, '#38782f');
+                capGrad.addColorStop(1, '#1d4218');
+            } else {
+                capGrad.addColorStop(0, '#59b72a');
+                capGrad.addColorStop(0.2, '#81da3b');
+                capGrad.addColorStop(0.5, '#acf354');
+                capGrad.addColorStop(0.8, '#59b72a');
+                capGrad.addColorStop(1, '#286214');
+            }
+
+            ctx.fillStyle = capGrad;
+            ctx.fillRect(x - capOver, capY, capW, capH);
+            ctx.strokeRect(x - capOver, capY, capW, capH);
+
+            // 玻璃感高光條
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
+            ctx.fillRect(x + 5, y, 4, h);
+            ctx.fillRect(x - capOver + 5, capY, 4, capH);
+
+            ctx.restore();
+        }
+    };
+
+    /* 遊戲結束處理 */
+    function triggerGameOver() {
+        if (currentState === STATE.GAME_OVER) return;
+        currentState = STATE.GAME_OVER;
+        flashOpacity = 0.85;
+        sound.playHit();
+        setTimeout(() => sound.playDie(), 160);
+
+        const best = getBestScore(currentDifficultyKey);
+        if (score > best) {
+            setBestScore(currentDifficultyKey, score);
+        }
+    }
+
+    /* 玩家互動點擊 */
+    function handleAction() {
+        sound.init();
+
+        if (currentState === STATE.GET_READY) {
+            currentState = STATE.PLAYING;
+            document.getElementById('difficulty-panel').style.display = 'none';
+            bird.flap();
+        } else if (currentState === STATE.PLAYING) {
+            bird.flap();
+        } else if (currentState === STATE.GAME_OVER) {
+            if (bird.y + bird.radius >= GROUND_Y - 2) {
+                score = 0;
+                pipes.reset();
+                bird.reset();
+                currentState = STATE.GET_READY;
+                document.getElementById('difficulty-panel').style.display = 'flex';
+            }
+        }
+    }
+
+    window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space') {
+            e.preventDefault();
+            handleAction();
+        }
+    });
+
+    canvas.addEventListener('pointerdown', (e) => {
+        handleAction();
+    });
+
+    // 難度按鈕綁定
+    const diffButtons = document.querySelectorAll('.aero-btn');
+    diffButtons.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            sound.init();
+            diffButtons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentDifficultyKey = btn.dataset.diff;
+        });
+    });
+
+    /* ==========================================================================
+       6. 晝夜光影與背景環境渲染
+       ========================================================================== */
+    function drawBackground() {
+        // 晝夜時間推進 (約 120 秒一循環，或隨著得分稍微加速)
+        timeOfDay = (timeOfDay + 0.0003) % 1.0;
+
+        // 計算天空色彩漸層插值
+        let skyTop, skyBottom;
+        let starAlpha = 0;
+        let sunMoonAngle = timeOfDay * Math.PI * 2;
+
+        if (timeOfDay < 0.25) {
+            // 白天 (湛藍天空)
+            skyTop = '#4aa1e8';
+            skyBottom = '#a7e0f8';
+        } else if (timeOfDay < 0.45) {
+            // 黃昏暮色 (暖橘、紫霞)
+            const t = (timeOfDay - 0.25) / 0.2;
+            skyTop = lerpColor('#4aa1e8', '#2b2353', t);
+            skyBottom = lerpColor('#a7e0f8', '#f2784b', t);
+            starAlpha = t * 0.7;
+        } else if (timeOfDay < 0.75) {
+            // 黑夜星空 (深海藍紫)
+            skyTop = '#0a1026';
+            skyBottom = '#1a2849';
+            starAlpha = 0.95;
+        } else {
+            // 破曉清晨
+            const t = (timeOfDay - 0.75) / 0.25;
+            skyTop = lerpColor('#0a1026', '#4aa1e8', t);
+            skyBottom = lerpColor('#1a2849', '#a7e0f8', t);
+            starAlpha = (1 - t) * 0.95;
+        }
+
+        const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+        skyGrad.addColorStop(0, skyTop);
+        skyGrad.addColorStop(1, skyBottom);
+        ctx.fillStyle = skyGrad;
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+        // 繪製太陽與月亮 (軌道運動)
+        const orbCenterX = WIDTH / 2 + Math.cos(sunMoonAngle) * (WIDTH * 0.45);
+        const orbCenterY = 160 + Math.sin(sunMoonAngle) * 110;
+
+        // 太陽或月亮判定
+        if (Math.sin(sunMoonAngle) < 0.6) {
+            // 太陽 (白天/黃昏)
+            ctx.save();
+            const sunGlow = ctx.createRadialGradient(orbCenterX, orbCenterY, 6, orbCenterX, orbCenterY, 36);
+            sunGlow.addColorStop(0, 'rgba(255, 245, 180, 0.9)');
+            sunGlow.addColorStop(0.5, 'rgba(255, 215, 80, 0.35)');
+            sunGlow.addColorStop(1, 'rgba(255, 200, 50, 0)');
+            ctx.fillStyle = sunGlow;
+            ctx.beginPath();
+            ctx.arc(orbCenterX, orbCenterY, 36, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#fff4bd';
+            ctx.beginPath();
+            ctx.arc(orbCenterX, orbCenterY, 15, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        } else {
+            // 月亮 (夜晚)
+            ctx.save();
+            ctx.fillStyle = '#fdfbe7';
+            ctx.shadowColor = 'rgba(255, 255, 255, 0.6)';
+            ctx.shadowBlur = 12;
+            ctx.beginPath();
+            ctx.arc(orbCenterX, orbCenterY, 13, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 月暈微缺角感
+            ctx.shadowColor = 'transparent';
+            ctx.fillStyle = skyTop;
+            ctx.beginPath();
+            ctx.arc(orbCenterX + 5, orbCenterY - 3, 11, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        // 星星繪製
+        if (starAlpha > 0.05) {
+            ctx.save();
+            for (let i = 0; i < stars.length; i++) {
+                const s = stars[i];
+                const twinkle = (Math.sin(frames * 0.05 + s.twinkle) + 1) / 2;
+                ctx.fillStyle = `rgba(255, 255, 255, ${starAlpha * (0.4 + twinkle * 0.6)})`;
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.restore();
+        }
+
+        // 雲朵
+        for (let i = 0; i < clouds.length; i++) {
+            const c = clouds[i];
+            if (currentState === STATE.PLAYING) {
+                c.x -= c.speed;
+                if (c.x < -90) c.x = WIDTH + 40;
+            }
+            ctx.save();
+            const cloudAlpha = starAlpha > 0.5 ? 0.35 : 0.85;
+            ctx.fillStyle = `rgba(255, 255, 255, ${cloudAlpha})`;
+            ctx.beginPath();
+            ctx.arc(c.x, c.y, 22 * c.scale, 0, Math.PI * 2);
+            ctx.arc(c.x + 20 * c.scale, c.y - 12 * c.scale, 26 * c.scale, 0, Math.PI * 2);
+            ctx.arc(c.x + 42 * c.scale, c.y, 20 * c.scale, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        // 遠景都市大樓天際線
+        const isNight = starAlpha > 0.5;
+        const bldgColor = isNight ? '#16233b' : '#99d2b2';
+        ctx.fillStyle = bldgColor;
+        for (let i = 0; i < WIDTH + 40; i += 38) {
+            ctx.fillRect(i, GROUND_Y - 48, 28, 48);
+            ctx.fillRect(i + 14, GROUND_Y - 65, 20, 65);
+
+            // 夜間隨機亮窗戶黃光
+            if (isNight) {
+                ctx.fillStyle = 'rgba(255, 225, 110, 0.75)';
+                ctx.fillRect(i + 4, GROUND_Y - 40, 4, 5);
+                ctx.fillRect(i + 18, GROUND_Y - 55, 4, 5);
+                ctx.fillStyle = bldgColor;
+            }
+        }
+
+        // 近景圓形灌木叢
+        ctx.fillStyle = isNight ? '#1e3e29' : '#73c968';
+        for (let i = 0; i < WIDTH + 30; i += 32) {
+            ctx.beginPath();
+            ctx.arc(i, GROUND_Y - 8, 22, 0, Math.PI, true);
+            ctx.fill();
+        }
+
+        // 地面
+        const cfg = DIFFICULTIES[currentDifficultyKey];
+        if (currentState === STATE.PLAYING) {
+            groundOffset = (groundOffset + cfg.pipeSpeed) % 18;
+        }
+
+        // 沙地主色
+        ctx.fillStyle = isNight ? '#988c69' : '#ded895';
+        ctx.fillRect(0, GROUND_Y, WIDTH, HEIGHT - GROUND_Y);
+
+        // 地面頂端草皮
+        ctx.fillStyle = isNight ? '#3a7226' : '#6fbc2d';
+        ctx.fillRect(0, GROUND_Y, WIDTH, 16);
+
+        ctx.fillStyle = isNight ? '#264d18' : '#518b1e';
+        ctx.fillRect(0, GROUND_Y + 14, WIDTH, 3);
+
+        // 斜紋綠草線條
+        ctx.strokeStyle = isNight ? '#2e5b1e' : '#5aa521';
+        ctx.lineWidth = 3;
+        for (let x = -20 - groundOffset; x < WIDTH + 20; x += 18) {
+            ctx.beginPath();
+            ctx.moveTo(x, GROUND_Y + 14);
+            ctx.lineTo(x + 10, GROUND_Y);
+            ctx.stroke();
+        }
+
+        // 地面頂部邊線
+        ctx.strokeStyle = '#2b2318';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(0, GROUND_Y);
+        ctx.lineTo(WIDTH, GROUND_Y);
+        ctx.stroke();
+    }
+
+    // 顏色插值輔助函數
+    function lerpColor(a, b, amount) {
+        const ah = parseInt(a.replace(/#/g, ''), 16),
+              ar = ah >> 16, ag = (ah >> 8) & 0xff, ab = ah & 0xff,
+              bh = parseInt(b.replace(/#/g, ''), 16),
+              br = bh >> 16, bg = (bh >> 8) & 0xff, bb = bh & 0xff;
+        const rr = Math.round(ar + amount * (br - ar)),
+              rg = Math.round(ag + amount * (bg - ag)),
+              rb = Math.round(ab + amount * (bb - ab));
+        return `rgb(${rr}, ${rg}, ${rb})`;
+    }
+
+    /* ==========================================================================
+       7. UI 面板渲染 (Aero Glass HUD)
+       ========================================================================== */
+    function drawScoreHUD() {
+        if (currentState === STATE.PLAYING) {
+            ctx.save();
+
+            // 頂部 Aero 氣泡分數膠囊
+            const scoreStr = score.toString();
+            ctx.font = '900 36px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+            const metrics = ctx.measureText(scoreStr);
+            const pillW = Math.max(76, metrics.width + 36);
+            const pillH = 46;
+            const px = (WIDTH - pillW) / 2;
+            const py = 45;
+
+            // 玻璃背景
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+            ctx.lineWidth = 2;
+            drawRoundRect(ctx, px, py, pillW, pillH, 23);
+            ctx.fill();
+            ctx.stroke();
+
+            // 玻璃頂部光澤
+            const gloss = ctx.createLinearGradient(0, py, 0, py + pillH / 2);
+            gloss.addColorStop(0, 'rgba(255, 255, 255, 0.6)');
+            gloss.addColorStop(1, 'rgba(255, 255, 255, 0.05)');
+            ctx.fillStyle = gloss;
+            drawRoundRect(ctx, px + 2, py + 2, pillW - 4, pillH / 2, 20);
+            ctx.fill();
+
+            // 數字本體
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            ctx.shadowBlur = 4;
+            ctx.shadowOffsetY = 2;
+            ctx.fillText(scoreStr, WIDTH / 2, py + 34);
+
+            ctx.restore();
+        }
+    }
+
+    function drawGetReady() {
+        ctx.save();
+        ctx.textAlign = 'center';
+
+        // Aero 主卡片
+        const cardW = 280;
+        const cardH = 135;
+        const cx = (WIDTH - cardW) / 2;
+        const cy = 125;
+
+        // 玻璃板底色
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = 2.5;
+        drawRoundRect(ctx, cx, cy, cardW, cardH, 20);
+        ctx.fill();
+        ctx.stroke();
+
+        // 頂部高光
+        const gloss = ctx.createLinearGradient(0, cy, 0, cy + cardH * 0.45);
+        gloss.addColorStop(0, 'rgba(255, 255, 255, 0.75)');
+        gloss.addColorStop(1, 'rgba(255, 255, 255, 0.05)');
+        ctx.fillStyle = gloss;
+        drawRoundRect(ctx, cx + 2, cy + 2, cardW - 4, cardH * 0.45, 18);
+        ctx.fill();
+
+        // 標題字體
+        ctx.font = '900 32px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        ctx.fillStyle = '#174068';
+        ctx.shadowColor = 'rgba(255, 255, 255, 0.9)';
+        ctx.shadowBlur = 2;
+        ctx.shadowOffsetY = 1;
+        ctx.fillText('FLAPPY BIRD', WIDTH / 2, cy + 50);
+
+        // 副標題
+        ctx.shadowColor = 'transparent';
+        ctx.font = '700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        ctx.fillStyle = '#2d5a86';
+        ctx.fillText('AERO GLASS EDITION', WIDTH / 2, cy + 74);
+
+        // 提示字
+        ctx.font = '600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+        ctx.shadowBlur = 4;
+        ctx.fillText('點擊畫面 或 按空白鍵 起飛', WIDTH / 2, cy + 110);
+
+        ctx.restore();
+    }
+
+    function drawGameOver() {
+        ctx.save();
+        ctx.textAlign = 'center';
+
+        // 卡片大小
+        const cardW = 284;
+        const cardH = 210;
+        const cx = (WIDTH - cardW) / 2;
+        const cy = 160;
+
+        // 玻璃面板背景
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.32)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.lineWidth = 2.5;
+        drawRoundRect(ctx, cx, cy, cardW, cardH, 20);
+        ctx.fill();
+        ctx.stroke();
+
+        // 玻璃反光頂
+        const gloss = ctx.createLinearGradient(0, cy, 0, cy + cardH * 0.4);
+        gloss.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+        gloss.addColorStop(1, 'rgba(255, 255, 255, 0.05)');
+        ctx.fillStyle = gloss;
+        drawRoundRect(ctx, cx + 2, cy + 2, cardW - 4, cardH * 0.4, 18);
+        ctx.fill();
+
+        // "GAME OVER" 標題
+        ctx.font = '900 28px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        ctx.fillStyle = '#d32f2f';
+        ctx.shadowColor = 'rgba(255, 255, 255, 0.8)';
+        ctx.shadowBlur = 2;
+        ctx.shadowOffsetY = 1;
+        ctx.fillText('GAME OVER', WIDTH / 2, cy + 42);
+
+        // 難度徽章
+        ctx.shadowColor = 'transparent';
+        const diffName = DIFFICULTIES[currentDifficultyKey].name;
+        ctx.font = '700 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        ctx.fillStyle = '#1c456f';
+        ctx.fillText(`難度：${diffName}`, WIDTH / 2, cy + 64);
+
+        // 獎牌與得分排版
+        const innerY = cy + 78;
+        const best = getBestScore(currentDifficultyKey);
+
+        // 獎牌圈圈
+        ctx.textAlign = 'left';
+        ctx.font = '700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        ctx.fillStyle = '#455a64';
+        ctx.fillText('MEDAL', cx + 28, innerY + 16);
+
+        let medalCol = null;
+        if (score >= 40) medalCol = '#e0e0e0';      // 白金
+        else if (score >= 20) medalCol = '#ffd54f'; // 金
+        else if (score >= 10) medalCol = '#b0bec5'; // 銀
+        else if (score >= 5) medalCol = '#d7ccc8';  // 銅
+
+        // 獎牌外底
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+        ctx.beginPath();
+        ctx.arc(cx + 52, innerY + 54, 23, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (medalCol) {
+            ctx.fillStyle = medalCol;
+            ctx.beginPath();
+            ctx.arc(cx + 52, innerY + 54, 21, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // 獎牌微光
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+            ctx.beginPath();
+            ctx.arc(cx + 47, innerY + 48, 6, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // 分數標籤
+        ctx.textAlign = 'right';
+        ctx.font = '700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        ctx.fillStyle = '#455a64';
+        ctx.fillText('SCORE', cx + cardW - 28, innerY + 16);
+
+        ctx.font = '900 24px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        ctx.fillStyle = '#0f2c4d';
+        ctx.fillText(score.toString(), cx + cardW - 28, innerY + 44);
+
+        ctx.font = '700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        ctx.fillStyle = '#455a64';
+        ctx.fillText('BEST', cx + cardW - 28, innerY + 74);
+
+        ctx.font = '900 24px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        ctx.fillStyle = '#0f2c4d';
+        ctx.fillText(best.toString(), cx + cardW - 28, innerY + 102);
+
+        // 重新開始浮動提示
+        if (bird.y + bird.radius >= GROUND_Y - 2) {
+            ctx.textAlign = 'center';
+            ctx.font = '700 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+            ctx.shadowBlur = 6;
+            const blink = Math.floor(frames / 26) % 2 === 0;
+            if (blink) {
+                ctx.fillText('點擊任意處重新挑戰', WIDTH / 2, cy + cardH + 42);
+            }
+        }
+
+        ctx.restore();
+    }
+
+    // 圓角矩形路徑輔助
+    function drawRoundRect(c, x, y, w, h, r) {
+        c.beginPath();
+        c.moveTo(x + r, y);
+        c.lineTo(x + w - r, y);
+        c.quadraticCurveTo(x + w, y, x + w, y + r);
+        c.lineTo(x + w, y + h - r);
+        c.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        c.lineTo(x + r, y + h);
+        c.quadraticCurveTo(x, y + h, x, y + h - r);
+        c.lineTo(x, y + r);
+        c.quadraticCurveTo(x, y, x + r, y);
+        c.closePath();
+    }
+
+    /* ==========================================================================
+       8. 遊戲更新循環
+       ========================================================================== */
+    function loop() {
+        frames++;
+
+        bird.update();
+        pipes.update();
+
+        drawBackground();
+        pipes.draw();
+        bird.draw();
+        drawScoreHUD();
+
+        if (currentState === STATE.GET_READY) {
+            drawGetReady();
+        } else if (currentState === STATE.GAME_OVER) {
+            drawGameOver();
+        }
+
+        // 碰撞閃白特效
+        if (flashOpacity > 0) {
+            ctx.fillStyle = `rgba(255, 255, 255, ${flashOpacity})`;
+            ctx.fillRect(0, 0, WIDTH, HEIGHT);
+            flashOpacity -= 0.05;
+            if (flashOpacity < 0) flashOpacity = 0;
+        }
+
+        requestAnimationFrame(loop);
+    }
+
+    // 啟動主循環
+    requestAnimationFrame(loop);
+    </script>
+</body>
+</html>
